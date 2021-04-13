@@ -1,3 +1,4 @@
 psutil
 pywinauto
 requests
+aiohttp

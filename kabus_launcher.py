@@ -4,9 +4,11 @@ import subprocess
 import sys
 import time
 
+import aiohttp
 import psutil
 import pywinauto
 import requests
+from aiohttp import web
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -16,6 +18,10 @@ logger.addHandler(_f_handler)
 _s_handler = logging.StreamHandler(sys.stdout)
 _s_handler.setLevel(logging.INFO)
 logger.addHandler(_s_handler)
+
+
+class KabusLaunchError(Exception):
+    pass
 
 
 def run_dfsvc_if_needed():
@@ -55,7 +61,10 @@ def waiting_for_kabus_api(retry=100, sleep=1):
 
 def launch(id, pwd, retry=100, sleep=1):
     logger.info(f'Launching kabuS.exe')
+    run_dfsvc_if_needed()
+
     cnt = 0
+    is_success = False
     while cnt < retry:
         try:
             exit_kabus_exe_if_needed()
@@ -71,6 +80,7 @@ def launch(id, pwd, retry=100, sleep=1):
             window.Edit2.set_edit_text(id)
             window.Edit.set_edit_text(pwd)
             window.child_window(auto_id="btnOK").click()
+            is_success = True
             break
         except:
             logger.exception('Error At launch')
@@ -78,17 +88,32 @@ def launch(id, pwd, retry=100, sleep=1):
             cnt += 1
             time.sleep(sleep)
 
-    logger.info('waiting for kabus_api...')
-    waiting_for_kabus_api()
-    logger.info('Launched')
+    if is_success:
+        logger.info('waiting for kabus_api...')
+        waiting_for_kabus_api()
+        logger.info('Launched')
+    else:
+        raise KabusLaunchError("Can not launch kabuS.exe")
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('id')
     parser.add_argument('pwd')
+    parser.add_argument('--mode', default='oneshot', type=str, choices=['oneshot', 'server'])
+    parser.add_argument('--port', default=18082, type=int)
     args = parser.parse_args()
 
-    run_dfsvc_if_needed()
+    if args.mode == "oneshot":
+        launch(args.id, args.pwd)
+    elif args.mode == "server":
+        app = web.Application()
 
-    launch(args.id, args.pwd)
+
+        async def handler(request):
+            launch(args.id, args.pwd)
+            return aiohttp.web.HTTPNoContent()
+
+
+        app.add_routes([web.get('/launch', handler)])
+        web.run_app(app, port=args.port)
